@@ -1,0 +1,12 @@
+# 编译产物：mvn compile生成的class文件，随时能重新编译出来，不进仓库
+target/
+
+# IDEA的个人配置：窗口布局、本地路径等，换台电脑就没意义，不进仓库
+.idea/
+
+# IDEA有时会生成的模块文件
+*.iml
+
+# 应用配置文件：含数据库密码、JWT密钥、天气/DeepSeek的API-key等明文机密，绝不进仓库
+# 一旦提交，机密会永久留在git历史里删不干净，所以从第一次提交起就必须排除
+src/main/resources/application.yml
