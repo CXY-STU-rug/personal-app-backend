@@ -117,6 +117,37 @@
             <artifactId>commons-pool2</artifactId>
         </dependency>
 
+        <!--minio的依赖-->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>8.5.13</version>
+        </dependency>
+<!--email依赖-->
+        <dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-mail</artifactId>
+</dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <!-- OAuth2 客户端（社会化登录就靠它） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-client</artifactId>
+        </dependency>
+
+        <!-- 参数校验：@Valid / @NotBlank / @Email / @Size 都在这里面。
+             Spring Boot 2.3 之前它是 web starter 的一部分，2.3 之后被拆出来单独成包，
+             不显式引就只有注解找不到（IDEA 报"无法解析符号 Valid"）。
+             引进来的是 Jakarta Bean Validation 规范 + Hibernate Validator 实现。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
     </dependencies>
     <build>
         <plugins>

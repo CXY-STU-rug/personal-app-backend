@@ -1,6 +1,8 @@
 package com.liyuq.common.Exception;
 import com.liyuq.VO.ScheduleVo;
 import com.liyuq.common.Result;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.slf4j.Logger;
@@ -26,6 +28,16 @@ public class GlobalExceptionHandler {
     public Result<List<ScheduleVo>> handleConflictEx(ConflictException e) {
         return Result.fail(e.getCode(), e.getMsg(),e.getData());
     }
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    @ResponseBody   // 类上是 @ControllerAdvice 不是 @RestControllerAdvice，每个方法都得自己加，漏了就走视图解析
+    public Result<Void> handleValidation(MethodArgumentNotValidException e) {
+        // getBindingResult().getFieldError() 拿第一个校验失败的字段，
+        // getDefaultMessage() 就是你在注解 message 里写的那句
+        // getBindingResult() 拿到所有校验结果，getFieldError() 取第一个出错的字段
+        FieldError fieldError = e.getBindingResult().getFieldError();
+        String msg = (fieldError==null)?"":fieldError.getDefaultMessage();
+        return Result.fail(400, msg);
+    }
 
     //打印日志的log静态对象，通过日志工厂获取，然后写上需要打印的类
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
@@ -35,4 +47,6 @@ public class GlobalExceptionHandler {
        log.error(e.getMessage(), e);
         return Result.fail(500, "系统繁忙，请稍后再试");
     }
+
+
 }

@@ -38,4 +38,13 @@ public class Result <T>{
         result.setData(data);
         return result;
     }
+
+    public static <T>Result<T> success(Integer i, String s) {
+        Result<T>result=new Result<>();
+
+        result.setCode(i);
+        result.setMsg(s);
+        result.setData(null);
+        return result;
+    }
 }

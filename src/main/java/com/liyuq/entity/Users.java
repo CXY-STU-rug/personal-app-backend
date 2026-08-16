@@ -23,6 +23,8 @@ public class Users {
 
     private String avatar;//用户头像url
 
+    private String email;
+
     private LocalDateTime createdAt;//注册时间，驼峰createdAt ↔ 列名created_at自动互转（之前少个d对不上）
 
     private LocalDateTime updatedAt;//信息更新时间

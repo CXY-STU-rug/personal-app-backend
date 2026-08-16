@@ -1,8 +1,6 @@
 package com.liyuq.controller;
 
-import com.liyuq.DTO.RegisterDto;
-import com.liyuq.DTO.UserDto;
-import com.liyuq.DTO.UserInfoDto;
+import com.liyuq.DTO.*;
 import com.liyuq.VO.UserCenterVo;
 import com.liyuq.VO.UserVo;
 import com.liyuq.common.Exception.BusinessException;
@@ -10,9 +8,8 @@ import com.liyuq.common.Result;
 import com.liyuq.service.UsersService;
 import jakarta.annotation.Nullable;
 import jakarta.annotation.Resource;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
-
-import java.nio.charset.CoderResult;
 
 /**
  * <p>
@@ -60,4 +57,49 @@ return Result.success(userCenterVo);
 
              return Result.success();
     }
+    @PutMapping("/password")
+    public Result<Void> updatePassword(@RequestBody UpdatePassWordDto dto) {
+        usersService.UpadtePassword(dto);
+        return Result.success();
+    }
+
+    @PutMapping("/avatar")
+    public Result<Void> updateAvatar(@RequestParam("avatar") String avatar) {
+
+        usersService.UpdateAvatar(avatar);
+
+        return  Result.success();
+    }
+
+    @PutMapping("/email")
+    public Result<Void> Email(@RequestBody EmailBodyDto dto) {
+
+        usersService.BingEmail(dto);
+        return Result.success();
+    }
+    @PostMapping("/password/forgot")
+public Result<Void> forgotPassword(@RequestBody @Valid ForgotPasswordDto dto) {
+    usersService.forgotPassword(dto.getEmail());
+    return Result.success(200,"若该邮箱已注册，我们已发送重置邮件，请查收");
 }
+
+@PostMapping("/password/reset")
+public Result<Void> resetPassword(@RequestBody @Valid ResetPasswordDto dto) {
+      usersService.reset(dto);
+
+return Result.success(200,"重置成功");
+
+    }
+
+
+
+    @DeleteMapping
+    public Result<Void> delete() {
+        usersService.delete();
+        // service 是 void，删完直接回成功；Result<Void> 方法必须有返回值
+        return Result.success();
+    }
+
+}
+
+

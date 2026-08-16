@@ -1,0 +1,17 @@
+version: '3.8'
+services:
+  minio:
+    image: minio/minio
+    container_name: minio
+    restart: always
+    ports:
+      # 宿主机9011 → 容器内9000（SDK连接端口）
+      - "9011:9000"
+      # 控制台宿主机端口保持9001，如果你想改控制台也可以调整左边数字
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: admin123456
+    volumes:
+      - ./personaluse:/personaluse
+    command: server /personaluse --console-address ":9001"
