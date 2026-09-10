@@ -133,15 +133,23 @@ public class NotesServiceImpl extends ServiceImpl<NotesMapper, Notes> implements
 //      }
 @Transactional
 
-    public Map<String, Long> createnotes(CreateNoteDto dto) {   // 入参改成DTO，字段从dto取
-        Long userId = UserContext.getUserContextId();
-        Notes notes = new Notes();
-        notes.setTitle(dto.getTitle());        // 从DTO取，不再是散参数
-        notes.setContent(dto.getContent());
-        notes.setUserId(userId);
-        notes.setCreatedAt(LocalDateTime.now());
-        notes.setUpdatedAt(LocalDateTime.now());
-        notesMapper.insert(notes);
+    public Map<String, Long> createnotes(CreateNoteDto dto) {// 入参改成DTO，字段从dto取
+    if (dto.getTitle() == null || dto.getTitle().isEmpty()) {
+        throw new BusinessException(404, "标题不能为空");
+    }
+
+    Long userId = UserContext.getUserContextId();
+    Notes notes = new Notes();
+    notes.setTitle(dto.getTitle());        // 从DTO取，不再是散参数
+    notes.setContent(dto.getContent());
+    notes.setUserId(userId);
+    notes.setCreatedAt(LocalDateTime.now());
+    notes.setUpdatedAt(LocalDateTime.now());
+    notesMapper.insert(notes);
+    // 标签是可选的：null（前端 JSON 里没有 tagNames 这个键）或空数组，都跳过整个循环，
+    // 笔记本身照样创建成功——"不打标签的笔记"是合法用法，不是错误
+    // != null 必须写在 && 左边：&& 从左往右求值，靠短路挡住右边的 .isEmpty()
+    if (dto.getTagNames() != null && !dto.getTagNames().isEmpty()) {
         for (String tagName : dto.getTagNames()) {   // 遍历前端传的 tagNames
             // 每轮新建 wrapper，条件跟着本轮 tagName 变
             LambdaQueryWrapper<NoteTags> w = Wrappers.lambdaQuery();
@@ -165,6 +173,7 @@ public class NotesServiceImpl extends ServiceImpl<NotesMapper, Notes> implements
             rel.setTagId(tagId);
             noteTagRelationsMapper.insert(rel);
         }
+    }
         return Map.of("id", notes.getId());
     }
 

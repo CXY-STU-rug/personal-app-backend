@@ -119,7 +119,13 @@ public class PostServiceImpl extends ServiceImpl<PostMapper, Posts> implements P
         LambdaQueryWrapper<Comment> queryWrapper2 = new LambdaQueryWrapper<>();
 queryWrapper2.eq(Comment::getPostId, id);
 commentMapper.delete(queryWrapper2);
-     stringRedisTemplate.opsForZSet().remove(HOT_KEY, id);
+     // ⚠️ 这里必须 .toString()，不能直接传 Long：
+     //    StringRedisTemplate 的序列化器是 StringRedisSerializer，它会把成员强转成 String，
+     //    传 Long 进来运行时直接 ClassCastException（删帖整个功能 500）。
+     //    而且就算不报错也删不掉——本类另外 4 处（incrementScore ×2、add ×1）写进榜单时
+     //    用的都是 postId.toString()，Redis 里存的是字符串 "14"，
+     //    拿数字 14 去 remove 序列化出来的字节不一样，匹配不上，热榜会残留已删除的帖子
+     stringRedisTemplate.opsForZSet().remove(HOT_KEY, id.toString());
 return;
     }
 

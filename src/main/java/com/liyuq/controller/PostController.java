@@ -52,8 +52,8 @@ return  Result.success();
     return  Result.success(postVO);
 }
 
-@GetMapping("/detail")
-    public Result<postDetailVo> getPostDetail(@RequestParam Long id) {
+@GetMapping("/detail/{id}")
+    public Result<postDetailVo> getPostDetail(@PathVariable Long id) {
       postDetailVo postDetailVo=     postService.GetPostDEtail(id);
 
 return  Result.success(postDetailVo);
