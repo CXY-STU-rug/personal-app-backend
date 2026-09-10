@@ -7,9 +7,17 @@ target/
 # IDEA有时会生成的模块文件
 *.iml
 
-# 应用配置文件：含数据库密码、JWT密钥、天气/DeepSeek的API-key等明文机密，绝不进仓库
-# 一旦提交，机密会永久留在git历史里删不干净，所以从第一次提交起就必须排除
-src/main/resources/application.yml
+# ⭐ 已改：application.yml 原来在这里被排除（因为含明文机密），现在【必须进仓库】。
+#    改的原因：里面的密钥已经全部换成 ${占位符}，本身不再有机密了；
+#    但它同时装着 mybatis 驼峰映射、multipart 上限、mail host/port、
+#    oauth2 provider 的三个 URL 等一大堆非机密配置——
+#    不进仓库的话，服务器 git clone 下来就少了这个文件，后果是：
+#      · 驼峰映射失效 → created_at 映射不到 createdAt → 多单词字段全查成 null
+#      · @Value("${jwt.expire-day}") 找不到值 → 启动直接抛异常
+#      · 邮件、GitHub 登录、MinIO 上传全挂
+#    真正的机密现在分成两处存放，两处都在本文件里排除了：
+#      · application-local.yml → 你本地的真实值（见下面）
+#      · .env                  → 服务器的真实值（见下面）
 
 # MinIO 容器挂载出来的数据目录：里面是 .minio.sys 内部元数据和用户上传的文件本体，
 # 属于运行时数据不是源码，816KB 且会随着每次上传无限增长
@@ -20,3 +28,13 @@ logs/
 
 # 上传/截图产生的图片：同样是运行时产物，不是项目源码
 images/
+
+# docker-compose 读取的环境变量文件：MySQL/Redis 密码、JWT 密钥、
+# DeepSeek 和风的 API-key、QQ 邮箱授权码、GitHub OAuth secret 全在里面。
+# 理由和上面的 application.yml 一样——一旦进 git 历史就删不干净，
+# 改回来也没用，只能去各家平台重新生成一遍
+.env
+
+# 本地开发专用的真实配置（application.yml 里放的是 ${占位符}，真值放这个文件）。
+# 只存在于你自己的电脑上，不进仓库也不上服务器
+src/main/resources/application-local.yml

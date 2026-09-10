@@ -1,0 +1,43 @@
+# docker build 会先把「构建上下文」（Dockerfile 所在目录的全部内容）打包发给 Docker 引擎，
+# 哪怕 Dockerfile 里根本不 COPY 它们。这个文件用来把不该进去的东西挡在外面。
+# 服务器上实测这些目录合计约 68MB，不挡的话每次构建都白传一遍。
+
+# ⚠️⚠️ 最重要的一条：本地开发用的真实密钥文件。
+# Dockerfile 里有 COPY src ./src，不挡的话它会被一起复制进构建阶段，
+# 然后被 mvn package 打进 jar 的 BOOT-INF/classes/ —— 谁拿到镜像谁就有你全部密钥明文。
+# （运行时 profile=prod 确实不会加载它，但文件躺在 jar 里就是泄漏）
+src/main/resources/application-local.yml
+
+# ⚠️ 环境变量文件同理，绝不能进镜像。
+# 它是 docker-compose 在【运行时】读取并注入的，不是【构建时】打包进去的
+.env
+
+# 编译产物：服务器上会重新 mvn package，本地传上来的这份没用还可能是旧的（64MB）
+target/
+
+# IDEA 工程文件，和构建无关（1.4MB）
+.idea/
+*.iml
+
+# git 历史（1.6MB）
+.git/
+.gitignore
+
+# 运行日志，只会越来越大
+logs/
+
+# 本地上传的图片、MinIO 遗留的数据目录
+images/
+personaluse/
+
+# 建表 SQL 由 docker-compose 用 volumes 挂载给 mysql 容器，
+# 走的是运行时挂载、不走构建上下文，所以不需要进应用镜像
+sql/
+
+# 文档
+docs/
+
+# Docker 相关文件自身不需要被 COPY 进去
+Dockerfile
+.dockerignore
+docker-compose.yml

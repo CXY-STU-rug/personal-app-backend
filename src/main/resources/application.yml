@@ -1,0 +1,162 @@
+server:
+  # 显式写死端口：GitHub OAuth App 里填的 callback URL 必须和这个端口一字不差，
+  # 之前 redirect-uri 写的 9080 但这里没配（Spring Boot 默认 8080），回调会跳到一个没人监听的端口
+  port: 8080
+
+spring:
+  # ⭐ 新增：profile 开关，决定密钥从哪来。
+  #    冒号后面的 local 是 profile 名字、不是密钥，进 git 无害。
+  #    本地 IDEA 启动 → 没有这个环境变量 → active=local → 额外加载 application-local.yml（真实密钥，已 gitignore）
+  #    服务器 compose  → 传 SPRING_PROFILES_ACTIVE=prod → 没有 application-prod.yml 这个文件，
+  #                      Spring 不会报错，密钥就全部来自 compose 注入的环境变量
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+
+  datasource:
+    # url 和 username 不是机密，留在这里；容器里会被 compose 传的同名属性覆盖掉
+    url: jdbc:mysql://127.0.0.1:3306/personal_app?useUnicode=true&characterEncoding=utf8
+    username: root
+    # ⭐ 原来是明文 123456。改成【不带默认值】的占位符：
+    #    本地由 application-local.yml 提供，服务器由 .env 提供。
+    #    故意不写 ${...:123456} 那种兜底值——写了就等于没外部化，明文照样进 git
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      # 你本地 Redis 没设密码，所以这里给一个【空】默认值 ${...:}——
+      # 空字符串本身不是机密，进 git 无害；服务器上由 compose 注入真实密码覆盖
+      password: ${SPRING_DATA_REDIS_PASSWORD:}
+      lettuce:
+        pool:
+          # 最大活跃连接数
+          max-active: 10
+          # 最大空闲连接
+          max-idle: 5
+          # 最小空闲连接
+          min-idle: 2
+          # 获取连接最大等待时间
+          max-wait: 1000ms
+
+  # ⭐ Spring 默认 multipart 上限 1MB/10MB，改大点支持帖子图片
+  # 完整键名是 spring.servlet.multipart.*，之前 servlet 顶格写成了独立配置块，Spring 根本不认
+  servlet:
+    multipart:
+      # 10MB → 100MB：视频接口业务上限本来就写的 100MB，但这里卡在 10MB，
+      # 那道 100MB 校验根本执行不到，用户实际只能传 10MB（约 5 秒手机视频）。
+      # 三层限制必须【外宽内严】，业务校验才有机会给出友好提示：
+      #   nginx 110m  >  这里 100MB  >  MinioService(图片5MB/视频100MB)
+      max-file-size: 100MB
+      # 请求体整体上限，要比单文件略大：multipart 表单除了文件本体还有边界字段等开销
+      max-request-size: 110MB
+
+  # ⭐ 邮件（3.47/3.48 忘记密码用）
+  # 完整键名是 spring.mail.*，之前缩在 minio 下面变成了 minio.mail.*，邮件自动配置读不到
+  mail:
+    host: smtp.qq.com          # QQ 邮箱发件服务器
+    port: 465                  # SSL 端口 (587 是 STARTTLS, 二选一, 465 最稳)
+    username: 3025475914@qq.com  # 完整 QQ 邮箱地址 (发件人)
+    # ⭐ 原来是明文授权码。SMTP 授权码没有"本地无害版"——就这一个，泄漏就是真泄漏，
+    #    所以不给默认值。本地走 application-local.yml，服务器走 .env
+    password: ${MAIL_PASSWORD}   # SMTP 授权码 (不是 QQ 密码)
+    # ⚠️ 已知问题(2026-07-04): v2rayN 开 TUN 全局模式时出口是美国 IP,
+    #    QQ 判定账号异常拒绝登录(535)。发信前先关 TUN 或把 qq.com 设为直连。
+    default-encoding: UTF-8
+    properties:
+      mail:
+        smtp:
+          auth: true           # 需要账号密码认证
+          ssl:
+            enable: true       # 465 端口必须开 SSL, 否则连不上
+
+  # ⭐ GitHub 第三方登录（V7）
+  # 完整键名是 spring.security.oauth2.client.*，之前缩在 oauth 下面变成了 oauth.security.oauth2.*，
+  # Spring Security 的 OAuth2 客户端自动配置一个字都读不到，等于整块白写
+  security:
+    oauth2:
+      client:
+        registration:
+          github:
+            # ⚠️ 临时硬编码，只为本地联调方便。
+            #    commit 之前务必改回 ${GITHUB_CLIENT_ID} / ${GITHUB_CLIENT_SECRET} 形式——
+            #    secret 一旦进了 git 历史就删不掉了（改回来也没用，只能去 GitHub 重新生成）
+            # ⭐ 你原来这里的注释写着"commit 之前务必改回 ${GITHUB_CLIENT_ID} 形式"——现在改了。
+            #    client-id 按 OAuth2 规范本来就是公开的（它会出现在浏览器地址栏的授权链接里），
+            #    但一起外部化更方便：本地和生产可以各用一个 GitHub OAuth App，不用改代码
+            client-id: ${GITHUB_CLIENT_ID}
+            client-secret: ${GITHUB_CLIENT_SECRET}
+            scope: read:user                       # 只要基本资料；要拿到私有邮箱得再加 user:email
+            authorization-grant-type: authorization_code
+            # 必须与 GitHub OAuth App 里填的 callback URL 完全一致，
+            # 也必须和 SecurityConfig 里 redirectionEndpoint 的 baseUri 对得上
+            redirect-uri: http://localhost:8080/auth/login/oauth2/code/github
+        provider:
+          github:
+            authorization-uri: https://github.com/login/oauth/authorize
+            token-uri: https://github.com/login/oauth/access_token
+            user-info-uri: https://api.github.com/user
+            user-name-attribute: id   # 用 GitHub 的 id 作为 OAuth2User 主键属性
+
+mybatis-plus:
+  configuration:
+    # 开启下划线自动转驼峰
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: auto
+
+# JWT配置
+jwt:
+  # ⭐ 原来是明文。JWT 密钥泄漏 = 任何人都能伪造任意用户的 token 登录你的系统
+  secret: ${JWT_SECRET}
+  # 过期天数不是机密，留着
+  expire-day: 7
+
+# 天气第三方API配置（V3，和风天气）
+# ⚠️ api-key是秘密：和数据库密码、jwt.secret一样，推GitHub前必须一起外部化
+weather:
+  api-host: https://mj5khxg56h.re.qweatherapi.com
+  # ⭐ 你原来的注释说"推GitHub前必须一起外部化"——现在做了
+  api-key: ${WEATHER_API_KEY}
+  default-city: 茂名   # city参数不传时的兜底城市，改成你所在的城市
+
+# AI第三方API配置（V3，DeepSeek）
+# ⚠️ api-key同样是秘密，推GitHub前必须一起外部化
+ai:
+  api-url: https://api.deepseek.com/chat/completions   # OpenAI兼容格式的对话接口
+  # ⭐ 同上。DeepSeek 的 key 是按量计费的，泄漏了别人可以拿去刷你的额度
+  api-key: ${AI_API_KEY}
+
+# ⭐ MinIO 配置 (要跟 @ConfigurationProperties(prefix='minio') 一致)
+minio:
+  # endpoint / bucket 不是机密，留着；容器里由 compose 覆盖成 http://minio:9000
+  endpoint: http://127.0.0.1:9011
+  access-key: ${MINIO_ACCESS_KEY:admin}
+  # ⭐ 原来这里是明文密码。注释里也不能写出真实值——注释一样会进 git
+  secret-key: ${MINIO_SECRET_KEY}
+  bucket: personaluse
+  public-url: http://127.0.0.1:9011/personaluse
+
+# ⭐ 第三方登录成功后往哪个前端页面回跳（OAuth2LoginSuccessHandler 读这个键）
+# 原来的 oauth.github.client-id/secret 已删除：那两行 Spring Security 根本不读，
+# 却把真实 secret 明文写进了文件——留着有害无益
+oauth:
+  frontend-callback-url: http://localhost:5174/oauth/github/callback
+
+# ⭐ 已按你自己的注释（"V7 联调完就可以把这整段删掉"）删除，2026-08-20。
+#    原内容：org.springframework.security=DEBUG、oauth2=TRACE、file.name=logs/app.log
+#    删掉的三个理由：
+#      ① oauth2 的 TRACE 会把换 token 的报文细节打出来，里面可能带 access token，
+#         而日志文件通常不按机密管理（会被打包、复制、贴给别人看）
+#      ② 现在没流量所以只有 60K，一旦前端接上、有真实用户，DEBUG 的量级会翻好几个数量级
+#      ③ file.name 是往【容器内】写文件，容器一重建就没了，等于白写；
+#         容器化之后日志应该走标准输出，由 docker 的日志驱动统一收
+#    以后再排查 OAuth 不用改回这里——临时开一次就够了，不必让它常驻配置：
+#      docker exec personaluse ... 或本地 IDEA 启动参数加
+#      --logging.level.org.springframework.security=DEBUG
+#    删掉后日志回到 Spring Boot 默认的 INFO 级别，启动信息、异常栈照样打，不影响排错
+
+app:
+  frontend-url: http://localhost:5174   # 部署时改成真实域名

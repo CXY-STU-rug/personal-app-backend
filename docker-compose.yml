@@ -1,17 +1,161 @@
-version: '3.8'
 services:
   minio:
     image: minio/minio
     container_name: minio
     restart: always
     ports:
-      # 宿主机9011 → 容器内9000（SDK连接端口）
-      - "9011:9000"
+      # 宿主机9000 → 容器内9000（SDK连接端口）
+      # ⚠️ 这行注释原来写的是"宿主机9011"，和实际的 9000:9000 对不上，已更正。
+      #    注意 application.yml 里 minio.endpoint 还写着 127.0.0.1:9011，本地调试时端口要对上
+      - "9000:9000"
       # 控制台宿主机端口保持9001，如果你想改控制台也可以调整左边数字
       - "9001:9001"
     environment:
-      MINIO_ROOT_USER: admin
-      MINIO_ROOT_PASSWORD: admin123456
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
-      - ./personaluse:/personaluse
+    - /opt/minio-personaluse:/personaluse
     command: server /personaluse --console-address ":9001"
+  # ⚠️ 这一块原来 image/ports/environment 是 5 个空格缩进，volumes/command 是 4 个，
+  #    YAML 要求同一层级的 key 严格对齐，不齐会直接解析报错、镜像都不会开始拉。
+  #    另外服务名原来写成 "mysql :"，冒号前多一个空格，一并去掉
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    restart: always
+    ports:
+      # ⚠️ 原来是 "3306:3306"，等价于绑到 0.0.0.0——只要云服务器安全组放行就是公网可达。
+      #    加上 127.0.0.1 前缀后只有服务器本机能连，外网扫不到。
+      #    应用容器访问数据库走的是 compose 内部网络（主机名 mysql），不依赖这个映射，
+      #    保留它只是方便你 ssh 上去用命令行或走 SSH 隧道连数据库调试
+      - "127.0.0.1:3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      # ⚠️ MYSQL_USER 不能填 root：root 已由上面那行创建，再指定一次镜像会报错退出。
+      #    填个业务专用账号（比如 personaluse），镜像会自动把 MYSQL_DATABASE 的权限授给它
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - /opt/mysql:/var/lib/mysql
+      # ⭐ 新增：MySQL 镜像会在【数据目录为空】时，自动按文件名顺序执行这个目录下的 .sql。
+      #    这样新服务器 docker compose up 一次，13 张表就自动建好了。
+      #    :ro 是只读挂载，防止容器意外改写你的建表脚本。
+      #    ⚠️ 注意它只在【首次初始化】时跑。如果 /opt/mysql 里已经有数据，这个目录会被完全忽略——
+      #       以后改表结构不能靠改这个文件，得手动执行 ALTER TABLE
+      - ./sql:/docker-entrypoint-initdb.d:ro
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    # ⭐ 新增：给下面 personaluse 的 depends_on 用。
+    #    MySQL 8.0 首次启动要 20~40 秒初始化数据目录，没有它应用会先启动、连不上库、直接退出
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:6.2-alpine
+    container_name: redis
+    restart: always
+    ports:
+      # ⚠️ 同 mysql，原来是 0.0.0.0:6379。
+      #    Redis 挂公网是最容易出事的一个——扫描器专门找 6379，
+      #    弱密码或空密码被扫到后植入挖矿脚本通常是几分钟内的事
+      - "127.0.0.1:6379:6379"
+    # ⚠️ 原来这里有 environment: REDIS_PASSWORD，已删除——
+    #    redis 官方镜像根本不读这个环境变量，真正生效的只有下面 command 里的 --requirepass。
+    #    留着会让人误以为密码配好了
+    volumes:
+      - /opt/redis:/data
+    # ⭐ 加 --appendonly yes 开 AOF 持久化：
+    #    只挂 /data 不开 AOF 的话只有 RDB 定时快照兜底，宕机会丢最近几分钟的写入
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    # ⭐ 新增 healthcheck，同 mysql
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  personaluse:
+    container_name: personaluse
+    # ⚠️ 原来写的 ./personaluse 是 MinIO 遗留下来的空数据目录，里面没有 Dockerfile，构建必失败。
+    #    改成 . ，用项目根目录当构建上下文，Dockerfile 也放根目录
+    build: .
+    restart: always
+    ports:
+      # ⚠️ 原来是 9003:9003，但 application.yml 里 server.port 是 8080，
+      #    容器内没人监听 9003，端口映射是空转的、外面永远访问不到。
+      #    右边必须是容器内 Spring 真实监听的端口，左边宿主机端口随便定
+      - "9003:8080"
+    environment:
+      - TZ=Asia/Shanghai
+      # ⭐ 新增：切到 prod profile。
+      #    application.yml 里默认是 local，会去加载 application-local.yml（本地真实密钥）。
+      #    服务器上传 prod，Spring 去找 application-prod.yml，找不到也不报错，
+      #    密钥就全部来自下面注入的这些环境变量
+      - SPRING_PROFILES_ACTIVE=prod
+      # ⚠️ 原来这里写的是 characterEncoding=utf8mb4，会让应用启动后一查库就 500。
+      #    报错：java.io.UnsupportedEncodingException: utf8mb4
+      #    原因：characterEncoding 要的是【Java 的字符集名】（UTF-8 / GBK / ISO-8859-1…），
+      #         而 utf8mb4 是【MySQL 服务端的字符集名】，Java 里根本没有这个编码。
+      #    改成 UTF-8【不影响 emoji】——存不存得下 4 字节字符取决于两件事：
+      #      ① 建表时的 DEFAULT CHARACTER SET utf8mb4（你 init.sql 里有）
+      #      ② mysql 容器 command 里的 --character-set-server=utf8mb4（上面配了）
+      #    这个参数只管 JDBC 驱动在 Java String ↔ 字节 之间怎么转，和数据库存储无关
+      # ⚠️ 还要加 allowPublicKeyRetrieval=true，否则连库报
+      #    "Public Key Retrieval is not allowed"。
+      #    原因链：MySQL 8 默认认证插件是 caching_sha2_password →
+      #           客户端要先向服务端索取 RSA 公钥来加密密码 →
+      #           但上面写了 useSSL=false 关掉了加密通道 →
+      #           驱动为防中间人，默认【拒绝】在明文通道上索取公钥 → 连不上。
+      #    你本地没踩到这个坑，是因为本地 URL 压根没写 useSSL=false，
+      #    驱动默认 sslMode=PREFERRED 走了 SSL，公钥传输本来就是安全的。
+      #    这里 app 和 mysql 之间走的是 docker 内部 bridge 网络、流量不出宿主机，
+      #    所以放开公钥索取是安全的，比为容器间通信配 SSL 证书划算得多
+      - spring.datasource.url=jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=UTF-8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      - spring.datasource.username=${MYSQL_USER}
+      - spring.datasource.password=${MYSQL_PASSWORD}
+      # ⚠️ 原来是 spring.redis.*，那是 Spring Boot 2 的键名。
+      #    Boot 3 已经迁到 spring.data.redis.*，老键传了等于没传，
+      #    应用会退回去用 application.yml 里的 127.0.0.1 —— 而容器里的 127.0.0.1 是容器自己，连不上。
+      #    你 application.yml 写的就是 spring.data.redis，这里跟它对齐
+      - spring.data.redis.host=redis
+      - spring.data.redis.port=6379
+      - spring.data.redis.password=${REDIS_PASSWORD}
+
+      # endpoint 是【容器之间】互访的地址，用服务名 minio
+      - minio.endpoint=http://minio:9000
+      - minio.access-key=${MINIO_ROOT_USER}
+      - minio.secret-key=${MINIO_ROOT_PASSWORD}
+      # ⭐ 新增：public-url 是【返回给浏览器】的图片地址，必须是外网能访问到的。
+      #    漏了这项它会沿用 application.yml 里的 127.0.0.1:9011，
+      #    用户一打开图片就 404 —— 因为 127.0.0.1 指的是用户自己的电脑
+      - minio.public-url=http://${PUBLIC_HOST}:9000/personaluse
+
+      # ---------- ⭐ 新增：密钥全部从 .env 注入 ----------
+      # application.yml 里对应的键现在已经是 ${占位符}、不含明文了。
+      # 这几行就是它们在【服务器上】的真实来源；本地则由 application-local.yml 提供
+      - jwt.secret=${JWT_SECRET}
+      - ai.api-key=${AI_API_KEY}
+      - weather.api-key=${WEATHER_API_KEY}
+      - spring.mail.password=${MAIL_PASSWORD}
+      - spring.security.oauth2.client.registration.github.client-id=${GITHUB_CLIENT_ID}
+      - spring.security.oauth2.client.registration.github.client-secret=${GITHUB_CLIENT_SECRET}
+
+      # ---------- ⭐ 新增：部署后必须换掉的地址 ----------
+      # redirect-uri 要和 GitHub OAuth App 后台填的 callback URL 一字不差，
+      # 还留着 localhost 的话第三方登录直接废
+      - spring.security.oauth2.client.registration.github.redirect-uri=http://${PUBLIC_HOST}:9003/auth/login/oauth2/code/github
+      - oauth.frontend-callback-url=${FRONTEND_URL}/oauth/github/callback
+      - app.frontend-url=${FRONTEND_URL}
+    # ⚠️ 原来的短横线列表只保证"容器启动了"，不保证"服务能连了"。
+    #    MySQL 初始化那 20~40 秒里，应用早就启动、连不上库、退出了。
+    #    改成 condition: service_healthy，会真的等到上面配的 healthcheck 通过才启动
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
