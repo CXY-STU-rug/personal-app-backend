@@ -58,12 +58,15 @@ public class MinioServiceImpl implements MinioService {
     @Override
     public String upload(MultipartFile file) {
         // 1. 空校验
+        // 状态码 500 → 400：这几条全是"用户传错东西"，不是服务器出故障。
+        // 500 的语义是服务端自己崩了，前端拿到 500 通常会提示"服务器异常"并上报告警，
+        // 但用户其实只要换个文件就行。本文件里 "文件名不能为空" 用的就是 400，这里对齐。
         if (file == null || file.isEmpty()) {
-            throw new BusinessException(500, "文件为空");
+            throw new BusinessException(400, "文件为空");
         }
         final long MAX_SIZE = 5 * 1024 * 1024L;
         if (file.getSize() > MAX_SIZE) {
-            throw new BusinessException(500, "文件大小不能超过5MB");
+            throw new BusinessException(400, "文件大小不能超过5MB");
         }
 
         // 2. 构造 objectName: {bizType}/{今天}/{UUID}.{原扩展名}
@@ -77,13 +80,14 @@ public class MinioServiceImpl implements MinioService {
         int dotIndex = fileName.lastIndexOf(".");
         // 没有后缀直接拦截
         if (dotIndex == -1) {
-            throw new BusinessException(500, "文件缺少后缀名称");
+            throw new BusinessException(400, "文件缺少后缀名称");   // 500 → 400，同上：用户传错
         }
         String suffix = fileName.substring(fileName.lastIndexOf("."));  // .jpg / .png
         //支持的后缀文件
         List<String> allowSuffix = Arrays.asList(".jpg", ".jpeg", ".png", ".gif", ".webp");
         if (!allowSuffix.contains(suffix.toLowerCase())) {
-            throw new BusinessException(500, "仅支持jpg、png、gif、webp格式图片");
+            // 500 → 400。和下面 uploadVideo 里 "仅支持MP4和MOV格式视频上传" 保持一致，那里本来就写对了
+            throw new BusinessException(400, "仅支持jpg、png、gif、webp格式图片");
         }
         String objectName =  LocalDate.now() + "/" + UUID.randomUUID() + suffix;
 
@@ -110,11 +114,14 @@ public class MinioServiceImpl implements MinioService {
     public VideoVo uploadVideo(MultipartFile file) {
         // 1. 空校验
         if (file == null || file.isEmpty()) {
-            throw new BusinessException(500, "文件为空");
+            throw new BusinessException(400, "文件为空");   // 500 → 400，同 upload()
         }
+        // 这道 100MB 校验以前根本执行不到：nginx 默认卡 1MB、Spring multipart 卡 10MB，
+        // 两道关卡都在它前面，用户实际只能传 10MB。现已把外面两层放宽到 110m/100MB，
+        // 这里才真正成为生效的那道业务红线。
         final long MAX_SIZE = 100 * 1024 * 1024L;
         if (file.getSize() > MAX_SIZE) {
-            throw new BusinessException(500, "文件大小不能超过100MB");
+            throw new BusinessException(400, "文件大小不能超过100MB");   // 500 → 400
         }
         String fileName = file.getOriginalFilename();// 取原文件名
         if (fileName == null || fileName.isBlank()) {
@@ -124,7 +131,7 @@ public class MinioServiceImpl implements MinioService {
         int dotIndex = fileName.lastIndexOf(".");
         // 没有后缀直接拦截
         if (dotIndex == -1) {
-            throw new BusinessException(500, "文件缺少后缀名称");
+            throw new BusinessException(400, "文件缺少后缀名称");   // 500 → 400
         }
         String suffix = fileName.substring(fileName.lastIndexOf("."));  // .jpg / .png
         //支持的后缀文件
